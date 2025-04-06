@@ -1,0 +1,156 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Infra Account - K3s Control Plane + ECR + S3 + GitHub Deploy Role
+
+Parameters:
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: SSH KeyPair for EC2 login
+
+Resources:
+
+  InfraVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.30.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: infra-vpc
+
+  InfraPublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref InfraVPC
+      CidrBlock: 10.30.1.0/24
+      AvailabilityZone: ap-northeast-2a
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: infra-public-subnet
+
+  InfraInternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  InfraAttachIGW:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref InfraVPC
+      InternetGatewayId: !Ref InfraInternetGateway
+
+  InfraRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref InfraVPC
+
+  InfraRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InfraAttachIGW
+    Properties:
+      RouteTableId: !Ref InfraRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InfraInternetGateway
+
+  InfraSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref InfraPublicSubnet
+      RouteTableId: !Ref InfraRouteTable
+
+  ControlPlaneSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Control Plane Security Group
+      VpcId: !Ref InfraVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 6443
+          ToPort: 6443
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: 0
+          ToPort: 0
+          CidrIp: 0.0.0.0/0
+
+  ControlPlaneEIP:
+    Type: AWS::EC2::EIP
+
+  ControlPlaneInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      KeyName: !Ref KeyName
+      ImageId: !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2}}'
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          SubnetId: !Ref InfraPublicSubnet
+          GroupSet:
+            - !Ref ControlPlaneSG
+      Tags:
+        - Key: Name
+          Value: k3s-control-plane
+
+  ControlPlaneEIPAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt ControlPlaneEIP.AllocationId
+      InstanceId: !Ref ControlPlaneInstance
+
+  BackendECR:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: app-backend
+
+  FrontendECR:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: app-frontend
+
+  InfraS3:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub infra-artifacts-${AWS::AccountId}-${AWS::Region}
+
+  GitHubDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: GitHubDeployRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: arn:aws:iam::YOUR_ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringLike:
+                token.actions.githubusercontent.com:sub: repo:YOUR_REPO_NAME:*
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess
+
+Outputs:
+  ControlPlaneIP:
+    Value: !Ref ControlPlaneEIP
+    Description: Public IP of the K3s Control Plane
+
+  BackendECR:
+    Value: !Ref BackendECR
+    Description: ECR for Backend App
+
+  FrontendECR:
+    Value: !Ref FrontendECR
+    Description: ECR for Frontend App
+
+  InfraS3:
+    Value: !Ref InfraS3
+    Description: S3 Bucket for Helm Charts and Backups
+
+  GitHubRoleArn:
+    Value: !GetAtt GitHubDeployRole.Arn
+    Description: IAM Role ARN for GitHub OIDC Deployments
