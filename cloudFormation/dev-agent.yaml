@@ -6,6 +6,15 @@ Parameters:
     Type: AWS::EC2::KeyPair::KeyName
     Description: SSH KeyPair for EC2
 
+  DBPassword:
+    Type: String
+    Description: RDS MySQL Admin Password
+    NoEcho: true
+    MinLength: 8
+    MaxLength: 41
+    AllowedPattern: "^[a-zA-Z0-9]*$"
+    ConstraintDescription: "비밀번호는 8~41자의 영문/숫자 조합이어야 합니다."
+
 Resources:
 
   DevVPC:
@@ -144,7 +153,7 @@ Resources:
       DBInstanceClass: db.t3.micro
       Engine: MySQL
       MasterUsername: admin
-      MasterUserPassword: DevPass123!
+      MasterUserPassword: !Ref DBPassword
       VPCSecurityGroups:
         - !Ref DevSecurityGroup
       DBSubnetGroupName: !Ref DevDBSubnetGroup
