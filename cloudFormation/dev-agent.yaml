@@ -1,0 +1,201 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Dev Account - K3s Agent (ASG Placeholder) + RDS + ElastiCache + S3 (Public Subnet, Free Tier Optimized)
+
+Parameters:
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: SSH KeyPair for EC2
+
+Resources:
+
+  DevVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.10.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: dev-vpc
+
+  DevPublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref DevVPC
+      CidrBlock: 10.10.1.0/24
+      AvailabilityZone: ap-northeast-2a
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: dev-public-subnet
+
+  DevPublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref DevVPC
+      CidrBlock: 10.10.2.0/24
+      AvailabilityZone: ap-northeast-2c
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: dev-public-subnet-2
+
+  DevInternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  DevAttachIGW:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref DevVPC
+      InternetGatewayId: !Ref DevInternetGateway
+
+  DevRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref DevVPC
+
+  DevRoute:
+    Type: AWS::EC2::Route
+    DependsOn: DevAttachIGW
+    Properties:
+      RouteTableId: !Ref DevRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref DevInternetGateway
+
+  DevSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref DevPublicSubnet
+      RouteTableId: !Ref DevRouteTable
+
+  DevSubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref DevPublicSubnet2
+      RouteTableId: !Ref DevRouteTable
+
+  DevSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Dev Security Group
+      VpcId: !Ref DevVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          CidrIp: 0.0.0.0/0
+
+  K3sLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: dev-k3s-agent-launch-template
+      LaunchTemplateData:
+        InstanceType: t2.micro
+        KeyName: !Ref KeyName
+        ImageId: !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2}}'
+        NetworkInterfaces:
+          - AssociatePublicIpAddress: true
+            DeviceIndex: 0
+            SubnetId: !Ref DevPublicSubnet
+            Groups:
+              - !Ref DevSecurityGroup
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            echo "k3s agent placeholder - control plane not yet available"
+
+  K3sASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+        - !Ref DevPublicSubnet
+      MinSize: '1'
+      MaxSize: '1'
+      DesiredCapacity: '1'
+      LaunchTemplate:
+        LaunchTemplateId: !Ref K3sLaunchTemplate
+        Version: !GetAtt K3sLaunchTemplate.LatestVersionNumber
+      Tags:
+        - Key: Name
+          Value: k3s-agent-asg
+          PropagateAtLaunch: true
+
+  DevRDSInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: dev-mysql-db
+      AllocatedStorage: 20
+      DBInstanceClass: db.t3.micro
+      Engine: MySQL
+      MasterUsername: admin
+      MasterUserPassword: DevPass123!
+      VPCSecurityGroups:
+        - !Ref DevSecurityGroup
+      DBSubnetGroupName: !Ref DevDBSubnetGroup
+      PubliclyAccessible: true
+
+  DevDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Dev RDS subnet group
+      SubnetIds:
+        - !Ref DevPublicSubnet
+        - !Ref DevPublicSubnet2
+      DBSubnetGroupName: dev-db-subnet-group
+
+  DevElastiCacheSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      Description: Dev Redis Subnet Group
+      SubnetIds:
+        - !Ref DevPublicSubnet
+        - !Ref DevPublicSubnet2
+      CacheSubnetGroupName: dev-redis-subnet-group
+
+  DevRedis:
+    Type: AWS::ElastiCache::CacheCluster
+    Properties:
+      CacheNodeType: cache.t2.micro
+      Engine: redis
+      NumCacheNodes: 1
+      VpcSecurityGroupIds:
+        - !Ref DevSecurityGroup
+      CacheSubnetGroupName: !Ref DevElastiCacheSubnetGroup
+
+  DevS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub dev-app-logs-${AWS::AccountId}-${AWS::Region}
+
+Outputs:
+  DevRDS:
+    Value: !Ref DevRDSInstance
+    Description: RDS for MySQL
+
+  DevRedis:
+    Value: !Ref DevRedis
+    Description: ElastiCache Redis instance
+
+  DevS3:
+    Value: !Ref DevS3Bucket
+    Description: S3 for logs and backups
+
+  K3sASG:
+    Value: !Ref K3sASG
+    Description: AutoScalingGroup for K3s Agent failover

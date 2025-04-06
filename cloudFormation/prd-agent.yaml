@@ -1,0 +1,201 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Prd Account - K3s Agent (ASG Placeholder) + RDS + ElastiCache + S3 (Public Subnet, Free Tier Optimized)
+
+Parameters:
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: SSH KeyPair for EC2
+
+Resources:
+
+  PrdVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.20.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: prd-vpc
+
+  PrdPublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref PrdVPC
+      CidrBlock: 10.20.1.0/24
+      AvailabilityZone: ap-northeast-2a
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: prd-public-subnet
+
+  PrdPublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref PrdVPC
+      CidrBlock: 10.20.2.0/24
+      AvailabilityZone: ap-northeast-2c
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: prd-public-subnet-2
+
+  PrdInternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  PrdAttachIGW:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref PrdVPC
+      InternetGatewayId: !Ref PrdInternetGateway
+
+  PrdRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref PrdVPC
+
+  PrdRoute:
+    Type: AWS::EC2::Route
+    DependsOn: PrdAttachIGW
+    Properties:
+      RouteTableId: !Ref PrdRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref PrdInternetGateway
+
+  PrdSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrdPublicSubnet
+      RouteTableId: !Ref PrdRouteTable
+
+  PrdSubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrdPublicSubnet2
+      RouteTableId: !Ref PrdRouteTable
+
+  PrdSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Prd Security Group
+      VpcId: !Ref PrdVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          CidrIp: 0.0.0.0/0
+
+  K3sLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: prd-k3s-agent-launch-template
+      LaunchTemplateData:
+        InstanceType: t2.micro
+        KeyName: !Ref KeyName
+        ImageId: !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2}}'
+        NetworkInterfaces:
+          - AssociatePublicIpAddress: true
+            DeviceIndex: 0
+            SubnetId: !Ref PrdPublicSubnet
+            Groups:
+              - !Ref PrdSecurityGroup
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            echo "k3s agent placeholder - control plane not yet available"
+
+  K3sASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+        - !Ref PrdPublicSubnet
+      MinSize: '1'
+      MaxSize: '1'
+      DesiredCapacity: '1'
+      LaunchTemplate:
+        LaunchTemplateId: !Ref K3sLaunchTemplate
+        Version: !GetAtt K3sLaunchTemplate.LatestVersionNumber
+      Tags:
+        - Key: Name
+          Value: prd-k3s-agent-asg
+          PropagateAtLaunch: true
+
+  PrdRDSInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: prd-mysql-db
+      AllocatedStorage: 20
+      DBInstanceClass: db.t3.micro
+      Engine: MySQL
+      MasterUsername: admin
+      MasterUserPassword: PrdPass123!
+      VPCSecurityGroups:
+        - !Ref PrdSecurityGroup
+      DBSubnetGroupName: !Ref PrdDBSubnetGroup
+      PubliclyAccessible: true
+
+  PrdDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Prd RDS subnet group
+      SubnetIds:
+        - !Ref PrdPublicSubnet
+        - !Ref PrdPublicSubnet2
+      DBSubnetGroupName: prd-db-subnet-group
+
+  PrdElastiCacheSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      Description: Prd Redis Subnet Group
+      SubnetIds:
+        - !Ref PrdPublicSubnet
+        - !Ref PrdPublicSubnet2
+      CacheSubnetGroupName: prd-redis-subnet-group
+
+  PrdRedis:
+    Type: AWS::ElastiCache::CacheCluster
+    Properties:
+      CacheNodeType: cache.t2.micro
+      Engine: redis
+      NumCacheNodes: 1
+      VpcSecurityGroupIds:
+        - !Ref PrdSecurityGroup
+      CacheSubnetGroupName: !Ref PrdElastiCacheSubnetGroup
+
+  PrdS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub prd-app-logs-${AWS::AccountId}-${AWS::Region}
+
+Outputs:
+  PrdRDS:
+    Value: !Ref PrdRDSInstance
+    Description: RDS for MySQL
+
+  PrdRedis:
+    Value: !Ref PrdRedis
+    Description: ElastiCache Redis instance
+
+  PrdS3:
+    Value: !Ref PrdS3Bucket
+    Description: S3 for logs and backups
+
+  K3sASG:
+    Value: !Ref K3sASG
+    Description: AutoScalingGroup for K3s Agent failover
