@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Dev Account - K3s Agent (ASG Placeholder) + RDS + ElastiCache + S3 (Public Subnet, Free Tier Optimized)
+Description: Dev Account - K3s Agent (ASG) + RDS (Private) + ElastiCache + S3 (Free Tier Optimized)
 
 Parameters:
   KeyName:
@@ -48,6 +48,28 @@ Resources:
       Tags:
         - Key: Name
           Value: dev-public-subnet-2
+
+  DevPrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref DevVPC
+      CidrBlock: 10.10.11.0/24
+      AvailabilityZone: ap-northeast-2a
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: dev-private-subnet
+
+  DevPrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref DevVPC
+      CidrBlock: 10.10.12.0/24
+      AvailabilityZone: ap-northeast-2c
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: dev-private-subnet-2
 
   DevInternetGateway:
     Type: AWS::EC2::InternetGateway
@@ -127,7 +149,14 @@ Resources:
         UserData:
           Fn::Base64: !Sub |
             #!/bin/bash
-            echo "k3s agent placeholder - control plane not yet available"
+            set -ex
+            fallocate -l 1G /swapfile
+            chmod 600 /swapfile
+            mkswap /swapfile
+            swapon /swapfile
+            echo '/swapfile none swap sw 0 0' >> /etc/fstab
+            timedatectl set-timezone Asia/Seoul
+            echo "✅ Dev EC2 initialized"
 
   K3sASG:
     Type: AWS::AutoScaling::AutoScalingGroup
@@ -157,15 +186,15 @@ Resources:
       VPCSecurityGroups:
         - !Ref DevSecurityGroup
       DBSubnetGroupName: !Ref DevDBSubnetGroup
-      PubliclyAccessible: true
+      PubliclyAccessible: false
 
   DevDBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
       DBSubnetGroupDescription: Dev RDS subnet group
       SubnetIds:
-        - !Ref DevPublicSubnet
-        - !Ref DevPublicSubnet2
+        - !Ref DevPrivateSubnet
+        - !Ref DevPrivateSubnet2
       DBSubnetGroupName: dev-db-subnet-group
 
   DevElastiCacheSubnetGroup:
