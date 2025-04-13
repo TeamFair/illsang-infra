@@ -96,6 +96,42 @@ Resources:
         - Key: Name
           Value: k3s-control-plane
 
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -ex
+
+          fallocate -l 1G /swapfile
+          chmod 600 /swapfile
+          mkswap /swapfile
+          swapon /swapfile
+          echo '/swapfile none swap sw 0 0' >> /etc/fstab
+
+          timedatectl set-timezone Asia/Seoul
+
+          cat <<'EOF' > /root/k3s-install.sh
+          #!/bin/bash
+          set -ex
+
+          export INSTALL_K3S_SKIP_SELINUX_RPM=true
+          curl -sfL https://get.k3s.io | sh -s - server \
+            --disable traefik \
+            --disable servicelb \
+            --disable metrics-server \
+            --write-kubeconfig-mode 644
+
+          echo 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml' >> /etc/profile.d/kubeconfig.sh
+          export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          echo 'export PATH=$PATH:/usr/local/bin' >> /etc/profile.d/helm-path.sh
+          export PATH=$PATH:/usr/local/bin
+          EOF
+
+          chmod +x /root/k3s-install.sh
+          /root/k3s-install.sh
+
+
   ControlPlaneEIPAssociation:
     Type: AWS::EC2::EIPAssociation
     Properties:
@@ -106,11 +142,6 @@ Resources:
     Type: AWS::ECR::Repository
     Properties:
       RepositoryName: app-backend
-
-  FrontendECR:
-    Type: AWS::ECR::Repository
-    Properties:
-      RepositoryName: app-frontend
 
   InfraS3:
     Type: AWS::S3::Bucket
@@ -142,10 +173,6 @@ Outputs:
   BackendECR:
     Value: !Ref BackendECR
     Description: ECR for Backend App
-
-  FrontendECR:
-    Value: !Ref FrontendECR
-    Description: ECR for Frontend App
 
   InfraS3:
     Value: !Ref InfraS3
