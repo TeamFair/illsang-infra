@@ -38,19 +38,20 @@ jobs:
           cd app-source
           ./gradlew :module-bootstrap:bootJar
 
-      - name: Check build output files
+      - name: Find JAR file
+        id: find-jar
         run: |
           cd app-source/module-bootstrap
-          echo "== Current directory: $(pwd) =="
-          echo "== Build output list =="
-          ls -al build/libs
+          JAR_NAME=$(ls build/libs/*.jar | head -n 1)
+          echo "JAR_NAME=$JAR_NAME" >> $GITHUB_ENV
 
       - name: Build, Tag, and Push Docker image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: app-backend
           IMAGE_TAG: latest
+          JAR_FILE: ${{ env.JAR_NAME }}   # 추가
         run: |
-          cd app-source
-          docker build -f module-bootstrap/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          cd app-source/module-bootstrap
+          docker build --build-arg JAR_FILE=$JAR_FILE -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
