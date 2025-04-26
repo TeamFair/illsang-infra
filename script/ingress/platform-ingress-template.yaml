@@ -3,6 +3,8 @@ kind: Ingress
 metadata:
   name: platform-ingress
   namespace: default
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
   rules:
     - host: ${PUBLIC_IP}.nip.io
