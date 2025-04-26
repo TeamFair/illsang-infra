@@ -1,0 +1,55 @@
+server:
+  service:
+    type: NodePort
+    nodePortHttp: 30223
+    nodePortHttps: 32244
+
+controller:
+  replicas: 1
+
+repoServer:
+  replicas: 1
+
+# 꺼버릴 것들
+applicationSet:
+  enabled: false
+
+notifications:
+  enabled: false
+
+dex:
+  enabled: false
+
+redis:
+  enabled: false
+
+# 마스터 노드 선호 배치 (affinity)
+controller:
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: Exists
+
+server:
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: Exists
+
+repoServer:
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: Exists
