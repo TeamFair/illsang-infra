@@ -15,7 +15,7 @@ jobs:
       - name: Checkout infra repository
         uses: actions/checkout@v4
 
-      - name: Checkout meokQ-backend repository
+      - name: Checkout illsang-backend repository
         uses: actions/checkout@v4
         with:
           repository: TeamFair/illsang-backend
@@ -37,6 +37,13 @@ jobs:
         run: |
           cd app-source
           ./gradlew :module-bootstrap:bootJar
+
+      - name: Check build output files
+        run: |
+          cd app-source/module-bootstrap
+          echo "== Current directory: $(pwd) =="
+          echo "== Build output list =="
+          ls -al build/libs
 
       - name: Build, Tag, and Push Docker image
         env:
