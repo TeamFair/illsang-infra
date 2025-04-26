@@ -33,12 +33,17 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Build module-bootstrap JAR
+        run: |
+          cd app-source
+          ./gradlew :module-bootstrap:bootJar
+
       - name: Build, Tag, and Push Docker image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: app-backend
           IMAGE_TAG: latest
         run: |
-          cd app-source
+          cd app-source/module-bootstrap
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
