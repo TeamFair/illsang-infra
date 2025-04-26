@@ -1,0 +1,13 @@
+controller:
+  replicaCount: 1
+  nodeSelector:
+    node-role.kubernetes.io/control-plane: "true"
+  tolerations:
+    - key: "node-role.kubernetes.io/control-plane"
+      operator: "Exists"
+      effect: "NoSchedule"
+  service:
+    type: NodePort
+    nodePorts:
+      http: 30080
+      https: 30443
