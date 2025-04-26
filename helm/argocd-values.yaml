@@ -1,3 +1,5 @@
+# argocd-values.yaml
+
 server:
   service:
     type: NodePort
