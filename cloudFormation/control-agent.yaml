@@ -1,10 +1,18 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Infra Account - K3s Control Plane + ECR + S3 + GitHub Deploy Role
+Description: Infra Account - K3s Control Plane Only
 
 Parameters:
   KeyName:
     Type: AWS::EC2::KeyPair::KeyName
     Description: SSH KeyPair for EC2 login
+
+  GithubRepoName:
+    Type: String
+    Description: GitHub Repository Name for OIDC Trust Policy
+
+  GithubAccountId:
+    Type: String
+    Description: AWS Account ID for OIDC Trust Policy
 
 Resources:
 
@@ -17,6 +25,12 @@ Resources:
       Tags:
         - Key: Name
           Value: infra-vpc
+        - Key: Environment
+          Value: infra
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Project
+          Value: illsang-infra
 
   InfraPublicSubnet:
     Type: AWS::EC2::Subnet
@@ -28,9 +42,25 @@ Resources:
       Tags:
         - Key: Name
           Value: infra-public-subnet
+        - Key: Environment
+          Value: infra
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Project
+          Value: illsang-infra
 
   InfraInternetGateway:
     Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: infra-igw
+        - Key: Environment
+          Value: infra
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Project
+          Value: illsang-infra
 
   InfraAttachIGW:
     Type: AWS::EC2::VPCGatewayAttachment
@@ -42,6 +72,15 @@ Resources:
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref InfraVPC
+      Tags:
+        - Key: Name
+          Value: infra-rtb
+        - Key: Environment
+          Value: infra
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Project
+          Value: illsang-infra
 
   InfraRoute:
     Type: AWS::EC2::Route
@@ -78,7 +117,13 @@ Resources:
           CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
-          Value: ControlPlaneSG
+          Value: control-plane-sg
+        - Key: Environment
+          Value: infra
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Project
+          Value: illsang-infra
 
   ControlPlaneEIP:
     Type: AWS::EC2::EIP
@@ -95,27 +140,29 @@ Resources:
           SubnetId: !Ref InfraPublicSubnet
           GroupSet:
             - !Ref ControlPlaneSG
+      IamInstanceProfile: !Ref ControlPlaneInstanceProfile
       Tags:
         - Key: Name
           Value: k3s-control-plane
-
-      IamInstanceProfile: !Ref ControlPlaneInstanceProfile
-
+        - Key: Environment
+          Value: infra
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Project
+          Value: illsang-infra
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
           set -ex
-
           fallocate -l 1G /swapfile
           chmod 600 /swapfile
           mkswap /swapfile
           swapon /swapfile
           echo '/swapfile none swap sw 0 0' >> /etc/fstab
-
           timedatectl set-timezone Asia/Seoul
-          
+          sudo -i
           sudo yum update -y
-          yum install -y git
+          sudo yum install -y git
           git clone https://github.com/TeamFair/illsang-infra.git
 
 
@@ -144,13 +191,25 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              Federated: arn:aws:iam::YOUR_ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com
+              Federated: !Sub arn:aws:iam::${GithubAccountId}:oidc-provider/token.actions.githubusercontent.com
             Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringLike:
-                token.actions.githubusercontent.com:sub: repo:YOUR_REPO_NAME:*
+                token.actions.githubusercontent.com:sub: repo:${GithubRepoName}:*
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AdministratorAccess
+
+  GitHubOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+      Tags:
+        - Key: Name
+          Value: github-oidc-provider
 
   ControlPlaneInstanceConnectRole:
     Type: AWS::IAM::Role
