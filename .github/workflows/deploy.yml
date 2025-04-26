@@ -44,6 +44,6 @@ jobs:
           ECR_REPOSITORY: app-backend
           IMAGE_TAG: latest
         run: |
-          cd app-source/module-bootstrap
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          cd app-source
+          docker build -f module-bootstrap/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
