@@ -19,6 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: TeamFair/meokQ-backend
+          ref: feature/feat-LayerHex
           token: ${{ secrets.GITHUB_TOKEN }}
           path: app-source
 
