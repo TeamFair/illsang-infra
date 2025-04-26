@@ -18,7 +18,7 @@ jobs:
       - name: Checkout meokQ-backend repository
         uses: actions/checkout@v4
         with:
-          repository: TeamFair/meokQ-backend
+          repository: TeamFair/illsang-backend
           ref: feature/feat-LayerHex
           token: ${{ secrets.GITHUB_TOKEN }}
           path: app-source
