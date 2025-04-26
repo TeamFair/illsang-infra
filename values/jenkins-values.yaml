@@ -1,0 +1,22 @@
+controller:
+  admin:
+    username: admin
+    password: admin
+
+  replicaCount: 1  # << 여기 추가: 젠킨스 파드를 1개만 띄우기
+
+  persistence:
+    enabled: true
+    existingClaim: ""
+    storageClass: "local-path"
+    size: 8Gi
+
+  installPlugins: []  # Init 컨테이너 오류 방지 (초기 플러그인 설치 생략)
+
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "256Mi"
+    limits:
+      cpu: "200m"
+      memory: "512Mi"
