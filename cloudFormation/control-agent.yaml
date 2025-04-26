@@ -68,14 +68,17 @@ Resources:
           ToPort: 22
           CidrIp: 0.0.0.0/0
         - IpProtocol: tcp
-          FromPort: 6443
-          ToPort: 6443
+          FromPort: 0
+          ToPort: 65535
           CidrIp: 0.0.0.0/0
       SecurityGroupEgress:
         - IpProtocol: -1
           FromPort: 0
           ToPort: 0
           CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: ControlPlaneSG
 
   ControlPlaneEIP:
     Type: AWS::EC2::EIP
@@ -96,6 +99,8 @@ Resources:
         - Key: Name
           Value: k3s-control-plane
 
+      IamInstanceProfile: !Ref ControlPlaneInstanceProfile
+
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
@@ -108,28 +113,10 @@ Resources:
           echo '/swapfile none swap sw 0 0' >> /etc/fstab
 
           timedatectl set-timezone Asia/Seoul
-
-          cat <<'EOF' > /root/k3s-install.sh
-          #!/bin/bash
-          set -ex
-
-          export INSTALL_K3S_SKIP_SELINUX_RPM=true
-          curl -sfL https://get.k3s.io | sh -s - server \
-            --disable traefik \
-            --disable servicelb \
-            --disable metrics-server \
-            --write-kubeconfig-mode 644
-
-          echo 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml' >> /etc/profile.d/kubeconfig.sh
-          export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-
-          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-          echo 'export PATH=$PATH:/usr/local/bin' >> /etc/profile.d/helm-path.sh
-          export PATH=$PATH:/usr/local/bin
-          EOF
-
-          chmod +x /root/k3s-install.sh
-          /root/k3s-install.sh
+          
+          sudo yum update -y
+          yum install -y git
+          git clone https://github.com/TeamFair/illsang-infra.git
 
 
   ControlPlaneEIPAssociation:
@@ -164,6 +151,26 @@ Resources:
                 token.actions.githubusercontent.com:sub: repo:YOUR_REPO_NAME:*
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AdministratorAccess
+
+  ControlPlaneInstanceConnectRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ControlPlaneEC2InstanceConnectRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  ControlPlaneInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref ControlPlaneInstanceConnectRole
 
 Outputs:
   ControlPlaneIP:

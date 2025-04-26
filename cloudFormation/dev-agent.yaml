@@ -6,14 +6,14 @@ Parameters:
     Type: AWS::EC2::KeyPair::KeyName
     Description: SSH KeyPair for EC2
 
-  DBPassword:
-    Type: String
-    Description: RDS MySQL Admin Password
-    NoEcho: true
-    MinLength: 8
-    MaxLength: 41
-    AllowedPattern: "^[a-zA-Z0-9]*$"
-    ConstraintDescription: "비밀번호는 8~41자의 영문/숫자 조합이어야 합니다."
+  #DBPassword:
+  #  Type: String
+  #  Description: RDS MySQL Admin Password
+  #  NoEcho: true
+  #  MinLength: 8
+  #  MaxLength: 41
+  #  AllowedPattern: "^[a-zA-Z0-9]*$"
+  #  ConstraintDescription: "비밀번호는 8~41자의 영문/숫자 조합이어야 합니다."
 
 Resources:
 
@@ -132,6 +132,26 @@ Resources:
           ToPort: 6379
           CidrIp: 0.0.0.0/0
 
+  DevInstanceConnectRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: DevEC2InstanceConnectRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  DevInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref DevInstanceConnectRole
+
   K3sLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
@@ -146,17 +166,24 @@ Resources:
             SubnetId: !Ref DevPublicSubnet
             Groups:
               - !Ref DevSecurityGroup
+        IamInstanceProfile:
+          Name: !Ref DevInstanceProfile
         UserData:
           Fn::Base64: !Sub |
             #!/bin/bash
             set -ex
+  
             fallocate -l 1G /swapfile
             chmod 600 /swapfile
             mkswap /swapfile
             swapon /swapfile
             echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  
             timedatectl set-timezone Asia/Seoul
-            echo "✅ Dev EC2 initialized"
+            
+            sudo yum update -y
+            yum install -y git
+            git clone https://github.com/TeamFair/illsang-infra.git
 
   K3sASG:
     Type: AWS::AutoScaling::AutoScalingGroup
@@ -174,65 +201,65 @@ Resources:
           Value: k3s-agent-asg
           PropagateAtLaunch: true
 
-  DevRDSInstance:
-    Type: AWS::RDS::DBInstance
-    Properties:
-      DBInstanceIdentifier: dev-mysql-db
-      AllocatedStorage: 20
-      DBInstanceClass: db.t3.micro
-      Engine: MySQL
-      MasterUsername: admin
-      MasterUserPassword: !Ref DBPassword
-      VPCSecurityGroups:
-        - !Ref DevSecurityGroup
-      DBSubnetGroupName: !Ref DevDBSubnetGroup
-      PubliclyAccessible: false
+  #DevRDSInstance:
+  #  Type: AWS::RDS::DBInstance
+  #  Properties:
+  #    DBInstanceIdentifier: dev-mysql-db
+  #    AllocatedStorage: 20
+  #    DBInstanceClass: db.t3.micro
+  #    Engine: MySQL
+  #    MasterUsername: admin
+  #    MasterUserPassword: !Ref DBPassword
+  #    VPCSecurityGroups:
+  #      - !Ref DevSecurityGroup
+  #    DBSubnetGroupName: !Ref DevDBSubnetGroup
+  #    PubliclyAccessible: false
 
-  DevDBSubnetGroup:
-    Type: AWS::RDS::DBSubnetGroup
-    Properties:
-      DBSubnetGroupDescription: Dev RDS subnet group
-      SubnetIds:
-        - !Ref DevPrivateSubnet
-        - !Ref DevPrivateSubnet2
-      DBSubnetGroupName: dev-db-subnet-group
+  #DevDBSubnetGroup:
+  #  Type: AWS::RDS::DBSubnetGroup
+  #  Properties:
+  #    DBSubnetGroupDescription: Dev RDS subnet group
+  #    SubnetIds:
+  #      - !Ref DevPrivateSubnet
+  #      - !Ref DevPrivateSubnet2
+  #    DBSubnetGroupName: dev-db-subnet-group
 
-  DevElastiCacheSubnetGroup:
-    Type: AWS::ElastiCache::SubnetGroup
-    Properties:
-      Description: Dev Redis Subnet Group
-      SubnetIds:
-        - !Ref DevPublicSubnet
-        - !Ref DevPublicSubnet2
-      CacheSubnetGroupName: dev-redis-subnet-group
+  #DevElastiCacheSubnetGroup:
+  #  Type: AWS::ElastiCache::SubnetGroup
+  #  Properties:
+  #    Description: Dev Redis Subnet Group
+  #    SubnetIds:
+  #      - !Ref DevPublicSubnet
+  #      - !Ref DevPublicSubnet2
+  #    CacheSubnetGroupName: dev-redis-subnet-group
 
-  DevRedis:
-    Type: AWS::ElastiCache::CacheCluster
-    Properties:
-      CacheNodeType: cache.t2.micro
-      Engine: redis
-      NumCacheNodes: 1
-      VpcSecurityGroupIds:
-        - !Ref DevSecurityGroup
-      CacheSubnetGroupName: !Ref DevElastiCacheSubnetGroup
+  #DevRedis:
+  #  Type: AWS::ElastiCache::CacheCluster
+  #  Properties:
+  #    CacheNodeType: cache.t2.micro
+  #    Engine: redis
+  #    NumCacheNodes: 1
+  #    VpcSecurityGroupIds:
+  #      - !Ref DevSecurityGroup
+  #    CacheSubnetGroupName: !Ref DevElastiCacheSubnetGroup
 
-  DevS3Bucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Sub dev-app-logs-${AWS::AccountId}-${AWS::Region}
+  #DevS3Bucket:
+  #  Type: AWS::S3::Bucket
+  #  Properties:
+  #    BucketName: !Sub dev-app-logs-${AWS::AccountId}-${AWS::Region}
 
 Outputs:
-  DevRDS:
-    Value: !Ref DevRDSInstance
-    Description: RDS for MySQL
+  #DevRDS:
+  #  Value: !Ref DevRDSInstance
+  #  Description: RDS for MySQL
 
-  DevRedis:
-    Value: !Ref DevRedis
-    Description: ElastiCache Redis instance
+  #DevRedis:
+  #  Value: !Ref DevRedis
+  #  Description: ElastiCache Redis instance
 
-  DevS3:
-    Value: !Ref DevS3Bucket
-    Description: S3 for logs and backups
+  #DevS3:
+  #  Value: !Ref DevS3Bucket
+  #  Description: S3 for logs and backups
 
   K3sASG:
     Value: !Ref K3sASG
