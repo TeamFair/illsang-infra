@@ -3,16 +3,42 @@
 server:
   service:
     type: NodePort
-    nodePortHttp: 30223
-    nodePortHttps: 32244
+    ports:
+      http:
+        nodePort: 30223
+      https:
+        nodePort: 32244
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: node-role.kubernetes.io/infra
+                operator: Exists
 
 controller:
   replicas: 1
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: node-role.kubernetes.io/infra
+                operator: Exists
 
 repoServer:
   replicas: 1
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: node-role.kubernetes.io/infra
+                operator: Exists
 
-# 꺼버릴 것들
 applicationSet:
   enabled: false
 
@@ -24,34 +50,3 @@ dex:
 
 redis:
   enabled: false
-
-# 마스터 노드 선호 배치 (affinity)
-controller:
-  affinity:
-    nodeAffinity:
-      preferredDuringSchedulingIgnoredDuringExecution:
-        - weight: 100
-          preference:
-            matchExpressions:
-              - key: node-role.kubernetes.io/control-plane
-                operator: Exists
-
-server:
-  affinity:
-    nodeAffinity:
-      preferredDuringSchedulingIgnoredDuringExecution:
-        - weight: 100
-          preference:
-            matchExpressions:
-              - key: node-role.kubernetes.io/control-plane
-                operator: Exists
-
-repoServer:
-  affinity:
-    nodeAffinity:
-      preferredDuringSchedulingIgnoredDuringExecution:
-        - weight: 100
-          preference:
-            matchExpressions:
-              - key: node-role.kubernetes.io/control-plane
-                operator: Exists
