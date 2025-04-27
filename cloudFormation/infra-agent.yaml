@@ -1,0 +1,194 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Infra Account - K3s Worker Node + Ingress Infra + ECR (Public Subnet Only)
+
+Parameters:
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: SSH KeyPair for EC2 login
+
+  GithubRepoName:
+    Type: String
+    Description: GitHub Repository Name for OIDC Trust Policy
+
+  GithubAccountId:
+    Type: String
+    Description: AWS Account ID for OIDC Trust Policy
+
+Resources:
+
+  InfraVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.110.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: infra-vpc
+        - Key: Environment
+          Value: infra
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Project
+          Value: illsang-infra
+
+  InfraPublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref InfraVPC
+      CidrBlock: 10.110.1.0/24
+      AvailabilityZone: ap-northeast-2a
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: infra-public-subnet
+        - Key: Environment
+          Value: infra
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Project
+          Value: illsang-infra
+
+  InfraInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: infra-igw
+        - Key: Environment
+          Value: infra
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Project
+          Value: illsang-infra
+
+  InfraAttachIGW:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref InfraVPC
+      InternetGatewayId: !Ref InfraInternetGateway
+
+  InfraRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref InfraVPC
+      Tags:
+        - Key: Name
+          Value: infra-rtb
+        - Key: Environment
+          Value: infra
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Project
+          Value: illsang-infra
+
+  InfraRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InfraAttachIGW
+    Properties:
+      RouteTableId: !Ref InfraRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InfraInternetGateway
+
+  InfraSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref InfraPublicSubnet
+      RouteTableId: !Ref InfraRouteTable
+
+  InfraSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Infra Worker Security Group
+      VpcId: !Ref InfraVPC
+      SecurityGroupIngress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  InfraLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: infra-k3s-agent-launch-template
+      LaunchTemplateData:
+        InstanceType: t2.micro
+        KeyName: !Ref KeyName
+        ImageId: !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2}}'
+        NetworkInterfaces:
+          - DeviceIndex: 0
+            SubnetId: !Ref InfraPublicSubnet
+            Groups:
+              - !Ref InfraSecurityGroup
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            echo "k3s agent placeholder - waiting for control plane"
+
+  InfraASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+        - !Ref InfraPublicSubnet
+      MinSize: '1'
+      MaxSize: '1'
+      DesiredCapacity: '1'
+      LaunchTemplate:
+        LaunchTemplateId: !Ref InfraLaunchTemplate
+        Version: !GetAtt InfraLaunchTemplate.LatestVersionNumber
+      Tags:
+        - Key: Name
+          Value: infra-k3s-agent-asg
+          PropagateAtLaunch: true
+
+  BackendECR:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: infra-app-backend
+
+  GitHubDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: GitHubDeployRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Sub arn:aws:iam::${GithubAccountId}:oidc-provider/token.actions.githubusercontent.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringLike:
+                token.actions.githubusercontent.com:sub: repo:${GithubRepoName}:*
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess
+
+  GitHubOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+      Tags:
+        - Key: Name
+          Value: github-oidc-provider
+
+Outputs:
+  InfraVPC:
+    Value: !Ref InfraVPC
+    Description: VPC for Infra
+
+  InfraASG:
+    Value: !Ref InfraASG
+    Description: AutoScalingGroup for Infra K3s Agent
+
+  BackendECR:
+    Value: !Ref BackendECR
+    Description: ECR repository for backend app
+
+  GitHubRoleArn:
+    Value: !GetAtt GitHubDeployRole.Arn
+    Description: IAM Role ARN for GitHub OIDC Deployments

@@ -1,6 +1,13 @@
 #!/bin/bash
 set -ex
 
+# 1. infra 워커 노드에 레이블 추가
+kubectl label node $(kubectl get nodes --no-headers | grep -v control-plane | awk '{print $1}') node-role.kubernetes.io/infra=infra --overwrite
+
+# 2. kube-ops-view namespace 생성
+kubectl create namespace kube-ops-view || true
+
+# 3. ServiceAccount + ClusterRoleBinding 생성
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: ServiceAccount
@@ -22,6 +29,7 @@ subjects:
     namespace: kube-ops-view
 EOF
 
+# 4. Deployment + Service 생성 (infra 노드에만 올라가게 nodeSelector 추가)
 cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
@@ -39,6 +47,8 @@ spec:
         app: kube-ops-view
     spec:
       serviceAccountName: kube-ops-view
+      nodeSelector:
+        node-role.kubernetes.io/infra: infra
       containers:
         - name: kube-ops-view
           image: hjacobs/kube-ops-view:latest
@@ -59,4 +69,3 @@ spec:
   selector:
     app: kube-ops-view
 EOF
-

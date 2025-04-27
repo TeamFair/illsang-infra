@@ -1,106 +1,100 @@
+# control-agent.yaml
+
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Infra Account - K3s Control Plane Only
+Description: Control Account - K3s Control Plane Only
 
 Parameters:
   KeyName:
     Type: AWS::EC2::KeyPair::KeyName
     Description: SSH KeyPair for EC2 login
 
-  GithubRepoName:
-    Type: String
-    Description: GitHub Repository Name for OIDC Trust Policy
-
-  GithubAccountId:
-    Type: String
-    Description: AWS Account ID for OIDC Trust Policy
-
 Resources:
 
-  InfraVPC:
+  ControlVPC:
     Type: AWS::EC2::VPC
     Properties:
-      CidrBlock: 10.30.0.0/16
+      CidrBlock: 10.100.0.0/16
       EnableDnsSupport: true
       EnableDnsHostnames: true
       Tags:
         - Key: Name
-          Value: infra-vpc
+          Value: control-vpc
         - Key: Environment
-          Value: infra
+          Value: control
         - Key: ManagedBy
           Value: CloudFormation
         - Key: Project
           Value: illsang-infra
 
-  InfraPublicSubnet:
+  ControlPublicSubnet:
     Type: AWS::EC2::Subnet
     Properties:
-      VpcId: !Ref InfraVPC
-      CidrBlock: 10.30.1.0/24
+      VpcId: !Ref ControlVPC
+      CidrBlock: 10.100.1.0/24
       AvailabilityZone: ap-northeast-2a
       MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
-          Value: infra-public-subnet
+          Value: control-public-subnet
         - Key: Environment
-          Value: infra
+          Value: control
         - Key: ManagedBy
           Value: CloudFormation
         - Key: Project
           Value: illsang-infra
 
-  InfraInternetGateway:
+  ControlInternetGateway:
     Type: AWS::EC2::InternetGateway
     Properties:
       Tags:
         - Key: Name
-          Value: infra-igw
+          Value: control-igw
         - Key: Environment
-          Value: infra
+          Value: control
         - Key: ManagedBy
           Value: CloudFormation
         - Key: Project
           Value: illsang-infra
 
-  InfraAttachIGW:
+  ControlAttachIGW:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
-      VpcId: !Ref InfraVPC
-      InternetGatewayId: !Ref InfraInternetGateway
+      VpcId: !Ref ControlVPC
+      InternetGatewayId: !Ref ControlInternetGateway
 
-  InfraRouteTable:
+  ControlRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
-      VpcId: !Ref InfraVPC
+      VpcId: !Ref ControlVPC
       Tags:
         - Key: Name
-          Value: infra-rtb
+          Value: control-rtb
         - Key: Environment
-          Value: infra
+          Value: control
         - Key: ManagedBy
           Value: CloudFormation
         - Key: Project
           Value: illsang-infra
 
-  InfraRoute:
+  ControlRoute:
     Type: AWS::EC2::Route
-    DependsOn: InfraAttachIGW
+    DependsOn: ControlAttachIGW
     Properties:
-      RouteTableId: !Ref InfraRouteTable
+      RouteTableId: !Ref ControlRouteTable
       DestinationCidrBlock: 0.0.0.0/0
-      GatewayId: !Ref InfraInternetGateway
+      GatewayId: !Ref ControlInternetGateway
 
-  InfraSubnetRouteTableAssociation:
+  ControlSubnetRouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      SubnetId: !Ref InfraPublicSubnet
-      RouteTableId: !Ref InfraRouteTable
+      SubnetId: !Ref ControlPublicSubnet
+      RouteTableId: !Ref ControlRouteTable
 
-  ControlPlaneSG:
+  ControlSG:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Control Plane Security Group
-      VpcId: !Ref InfraVPC
+      VpcId: !Ref ControlVPC
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 22
@@ -117,18 +111,18 @@ Resources:
           CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
-          Value: control-plane-sg
+          Value: control-sg
         - Key: Environment
-          Value: infra
+          Value: control
         - Key: ManagedBy
           Value: CloudFormation
         - Key: Project
           Value: illsang-infra
 
-  ControlPlaneEIP:
+  ControlEIP:
     Type: AWS::EC2::EIP
 
-  ControlPlaneInstance:
+  ControlInstance:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: t2.micro
@@ -137,15 +131,14 @@ Resources:
       NetworkInterfaces:
         - AssociatePublicIpAddress: true
           DeviceIndex: 0
-          SubnetId: !Ref InfraPublicSubnet
+          SubnetId: !Ref ControlPublicSubnet
           GroupSet:
-            - !Ref ControlPlaneSG
-      IamInstanceProfile: !Ref ControlPlaneInstanceProfile
+            - !Ref ControlSG
       Tags:
         - Key: Name
           Value: k3s-control-plane
         - Key: Environment
-          Value: infra
+          Value: control
         - Key: ManagedBy
           Value: CloudFormation
         - Key: Project
@@ -165,85 +158,13 @@ Resources:
           sudo yum install -y git
           git clone https://github.com/TeamFair/illsang-infra.git
 
-
-  ControlPlaneEIPAssociation:
+  ControlEIPAssociation:
     Type: AWS::EC2::EIPAssociation
     Properties:
-      AllocationId: !GetAtt ControlPlaneEIP.AllocationId
-      InstanceId: !Ref ControlPlaneInstance
-
-  BackendECR:
-    Type: AWS::ECR::Repository
-    Properties:
-      RepositoryName: app-backend
-
-  InfraS3:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Sub infra-artifacts-${AWS::AccountId}-${AWS::Region}
-
-  GitHubDeployRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: GitHubDeployRole
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Federated: !Sub arn:aws:iam::${GithubAccountId}:oidc-provider/token.actions.githubusercontent.com
-            Action: sts:AssumeRoleWithWebIdentity
-            Condition:
-              StringLike:
-                token.actions.githubusercontent.com:sub: repo:${GithubRepoName}:*
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AdministratorAccess
-
-  GitHubOIDCProvider:
-    Type: AWS::IAM::OIDCProvider
-    Properties:
-      Url: https://token.actions.githubusercontent.com
-      ClientIdList:
-        - sts.amazonaws.com
-      ThumbprintList:
-        - 6938fd4d98bab03faadb97b34396831e3780aea1
-      Tags:
-        - Key: Name
-          Value: github-oidc-provider
-
-  ControlPlaneInstanceConnectRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: ControlPlaneEC2InstanceConnectRole
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: ec2.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
-
-  ControlPlaneInstanceProfile:
-    Type: AWS::IAM::InstanceProfile
-    Properties:
-      Roles:
-        - !Ref ControlPlaneInstanceConnectRole
+      AllocationId: !GetAtt ControlEIP.AllocationId
+      InstanceId: !Ref ControlInstance
 
 Outputs:
   ControlPlaneIP:
-    Value: !Ref ControlPlaneEIP
+    Value: !Ref ControlEIP
     Description: Public IP of the K3s Control Plane
-
-  BackendECR:
-    Value: !Ref BackendECR
-    Description: ECR for Backend App
-
-  InfraS3:
-    Value: !Ref InfraS3
-    Description: S3 Bucket for Helm Charts and Backups
-
-  GitHubRoleArn:
-    Value: !GetAtt GitHubDeployRole.Arn
-    Description: IAM Role ARN for GitHub OIDC Deployments
