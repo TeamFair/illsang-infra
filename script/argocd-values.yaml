@@ -1,21 +1,9 @@
 # argocd-values.yaml
 
-server:
-  service:
-    type: NodePort
-    ports:
-      http:
-        nodePort: 30223
-      https:
-        nodePort: 32244
-  affinity:
-    nodeAffinity:
-      preferredDuringSchedulingIgnoredDuringExecution:
-        - weight: 100
-          preference:
-            matchExpressions:
-              - key: node-role.kubernetes.io/infra
-                operator: Exists
+global:
+  logging:
+    format: json
+    level: info
 
 controller:
   replicas: 1
@@ -39,14 +27,30 @@ repoServer:
               - key: node-role.kubernetes.io/infra
                 operator: Exists
 
+server:
+  replicas: 1
+  service:
+    type: NodePort
+    nodePorts:
+      http: 30223
+      https: 32244
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: node-role.kubernetes.io/infra
+                operator: Exists
+
 applicationSet:
   enabled: false
 
 notifications:
   enabled: false
 
-dex:
+redis:
   enabled: false
 
-redis:
+dex:
   enabled: false
