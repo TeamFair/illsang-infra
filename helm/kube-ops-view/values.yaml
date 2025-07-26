@@ -1,0 +1,27 @@
+replicaCount: 1
+
+image:
+  repository: hjacobs/kube-ops-view
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: NodePort
+  port: 80
+  targetPort: 8080
+  nodePort: 32237
+
+serviceAccount:
+  create: true
+  name: kube-ops-view
+
+nodeSelector:
+  node-role.kubernetes.io/infra: infra
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
