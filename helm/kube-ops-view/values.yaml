@@ -16,7 +16,7 @@ serviceAccount:
   name: kube-ops-view
 
 nodeSelector:
-  node-role.kubernetes.io/infra: infra
+  node-role.kubernetes.io/control-plane: "true"
 
 resources:
   requests:
