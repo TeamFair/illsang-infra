@@ -1,22 +1,14 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Prd Account - K3s Agent (ASG Placeholder) + RDS + ElastiCache + S3 (Public Subnet, Free Tier Optimized)
+Description: Prd Account - Network + K3s Agent AutoScaling 구성 (Public Subnet 기반)
 
 Parameters:
   KeyName:
     Type: AWS::EC2::KeyPair::KeyName
-    Description: SSH KeyPair for EC2
-
-  DBPassword:
-    Type: String
-    Description: RDS MySQL Admin Password
-    NoEcho: true
-    MinLength: 8
-    MaxLength: 41
-    AllowedPattern: "^[a-zA-Z0-9]*$"
-    ConstraintDescription: "비밀번호는 8~41자의 영문/숫자 조합이어야 합니다."
+    Description: SSH 접속용 EC2 키페어 이름
 
 Resources:
 
+  # VPC 생성 (10.20.0.0/16)
   PrdVPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -27,6 +19,7 @@ Resources:
         - Key: Name
           Value: prd-vpc
 
+  # Public Subnet 1 - EC2, RDS용 (AZ: ap-northeast-2a)
   PrdPublicSubnet:
     Type: AWS::EC2::Subnet
     Properties:
@@ -38,6 +31,7 @@ Resources:
         - Key: Name
           Value: prd-public-subnet
 
+  # Public Subnet 2 - EC2, RDS용 (AZ: ap-northeast-2c)
   PrdPublicSubnet2:
     Type: AWS::EC2::Subnet
     Properties:
@@ -49,6 +43,31 @@ Resources:
         - Key: Name
           Value: prd-public-subnet-2
 
+  # Private Subnet 1 - Redis 용도 (AZ: ap-northeast-2a)
+  PrdPrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref PrdVPC
+      CidrBlock: 10.20.10.0/24
+      AvailabilityZone: ap-northeast-2a
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: prd-private-subnet
+
+  # Private Subnet 2 - Redis 용도 (AZ: ap-northeast-2c)
+  PrdPrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref PrdVPC
+      CidrBlock: 10.20.11.0/24
+      AvailabilityZone: ap-northeast-2c
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: prd-private-subnet-2
+
+  # 인터넷 게이트웨이 생성 및 VPC에 연결
   PrdInternetGateway:
     Type: AWS::EC2::InternetGateway
 
@@ -58,6 +77,7 @@ Resources:
       VpcId: !Ref PrdVPC
       InternetGatewayId: !Ref PrdInternetGateway
 
+  # 퍼블릭 서브넷을 위한 라우팅 테이블 및 기본 라우트 설정
   PrdRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -71,6 +91,7 @@ Resources:
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref PrdInternetGateway
 
+  # 퍼블릭 서브넷에 라우팅 테이블 연결
   PrdSubnetRouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
@@ -83,6 +104,7 @@ Resources:
       SubnetId: !Ref PrdPublicSubnet2
       RouteTableId: !Ref PrdRouteTable
 
+  # 공통 보안 그룹 - SSH/HTTP/HTTPS/DB/Redis 허용
   PrdSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -102,14 +124,15 @@ Resources:
           ToPort: 443
           CidrIp: 0.0.0.0/0
         - IpProtocol: tcp
-          FromPort: 3306
-          ToPort: 3306
+          FromPort: 5432
+          ToPort: 5432
           CidrIp: 0.0.0.0/0
         - IpProtocol: tcp
           FromPort: 6379
           ToPort: 6379
-          CidrIp: 0.0.0.0/0
+          CidrIp: 10.20.0.0/16
 
+  # K3s Agent EC2 LaunchTemplate (UserData는 placeholder)
   K3sLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
@@ -129,6 +152,7 @@ Resources:
             #!/bin/bash
             echo "k3s agent placeholder - control plane not yet available"
 
+  # AutoScalingGroup - 최소 1개 K3s Agent EC2 유지
   K3sASG:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
@@ -145,66 +169,38 @@ Resources:
           Value: prd-k3s-agent-asg
           PropagateAtLaunch: true
 
-  PrdRDSInstance:
-    Type: AWS::RDS::DBInstance
-    Properties:
-      DBInstanceIdentifier: prd-mysql-db
-      AllocatedStorage: 20
-      DBInstanceClass: db.t3.micro
-      Engine: MySQL
-      MasterUsername: admin
-      MasterUserPassword: !Ref DBPassword
-      VPCSecurityGroups:
-        - !Ref PrdSecurityGroup
-      DBSubnetGroupName: !Ref PrdDBSubnetGroup
-      PubliclyAccessible: true
-
-  PrdDBSubnetGroup:
-    Type: AWS::RDS::DBSubnetGroup
-    Properties:
-      DBSubnetGroupDescription: Prd RDS subnet group
-      SubnetIds:
-        - !Ref PrdPublicSubnet
-        - !Ref PrdPublicSubnet2
-      DBSubnetGroupName: prd-db-subnet-group
-
-  PrdElastiCacheSubnetGroup:
-    Type: AWS::ElastiCache::SubnetGroup
-    Properties:
-      Description: Prd Redis Subnet Group
-      SubnetIds:
-        - !Ref PrdPublicSubnet
-        - !Ref PrdPublicSubnet2
-      CacheSubnetGroupName: prd-redis-subnet-group
-
-  PrdRedis:
-    Type: AWS::ElastiCache::CacheCluster
-    Properties:
-      CacheNodeType: cache.t2.micro
-      Engine: redis
-      NumCacheNodes: 1
-      VpcSecurityGroupIds:
-        - !Ref PrdSecurityGroup
-      CacheSubnetGroupName: !Ref PrdElastiCacheSubnetGroup
-
-  PrdS3Bucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Sub prd-app-logs-${AWS::AccountId}-${AWS::Region}
-
 Outputs:
-  PrdRDS:
-    Value: !Ref PrdRDSInstance
-    Description: RDS for MySQL
+  # 다른 템플릿에서 사용할 수 있도록 Export
+  PrdVPC:
+    Value: !Ref PrdVPC
+    Export:
+      Name: Prd-VPC-ID
 
-  PrdRedis:
-    Value: !Ref PrdRedis
-    Description: ElastiCache Redis instance
+  PrdPublicSubnet:
+    Value: !Ref PrdPublicSubnet
+    Export:
+      Name: Prd-Public-Subnet-1
 
-  PrdS3:
-    Value: !Ref PrdS3Bucket
-    Description: S3 for logs and backups
+  PrdPublicSubnet2:
+    Value: !Ref PrdPublicSubnet2
+    Export:
+      Name: Prd-Public-Subnet-2
+
+  PrdPrivateSubnet:
+    Value: !Ref PrdPrivateSubnet
+    Export:
+      Name: Prd-Private-Subnet-1
+
+  PrdPrivateSubnet2:
+    Value: !Ref PrdPrivateSubnet2
+    Export:
+      Name: Prd-Private-Subnet-2
+
+  PrdSecurityGroup:
+    Value: !Ref PrdSecurityGroup
+    Export:
+      Name: Prd-Security-Group
 
   K3sASG:
     Value: !Ref K3sASG
-    Description: AutoScalingGroup for K3s Agent failover
+    Description: AutoScalingGroup for K3s Agent

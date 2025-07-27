@@ -1,23 +1,14 @@
-# infra-agent.yaml
-
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Infra Account - K3s Worker Node + Ingress Infra + ECR (Public Subnet Only)
+Description: K3s Agent Stack - VPC + Subnet + IGW + Security Group + LaunchTemplate + AutoScalingGroup
 
 Parameters:
   KeyName:
     Type: AWS::EC2::KeyPair::KeyName
     Description: SSH KeyPair for EC2 login
 
-  GithubRepoName:
-    Type: String
-    Description: GitHub Repository Name for OIDC Trust Policy
-
-  GithubAccountId:
-    Type: String
-    Description: AWS Account ID for OIDC Trust Policy
-
 Resources:
 
+  # VPC
   InfraVPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -27,13 +18,10 @@ Resources:
       Tags:
         - Key: Name
           Value: infra-vpc
-        - Key: Environment
-          Value: infra
         - Key: ManagedBy
           Value: CloudFormation
-        - Key: Project
-          Value: illsang-infra
 
+  # Public Subnet
   InfraPublicSubnet:
     Type: AWS::EC2::Subnet
     Properties:
@@ -44,32 +32,27 @@ Resources:
       Tags:
         - Key: Name
           Value: infra-public-subnet
-        - Key: Environment
-          Value: infra
         - Key: ManagedBy
           Value: CloudFormation
-        - Key: Project
-          Value: illsang-infra
 
+  # Internet Gateway
   InfraInternetGateway:
     Type: AWS::EC2::InternetGateway
     Properties:
       Tags:
         - Key: Name
           Value: infra-igw
-        - Key: Environment
-          Value: infra
         - Key: ManagedBy
           Value: CloudFormation
-        - Key: Project
-          Value: illsang-infra
 
+  # IGW Attachment
   InfraAttachIGW:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
       VpcId: !Ref InfraVPC
       InternetGatewayId: !Ref InfraInternetGateway
 
+  # Route Table
   InfraRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -77,13 +60,10 @@ Resources:
       Tags:
         - Key: Name
           Value: infra-rtb
-        - Key: Environment
-          Value: infra
         - Key: ManagedBy
           Value: CloudFormation
-        - Key: Project
-          Value: illsang-infra
 
+  # 0.0.0.0/0 -> IGW
   InfraRoute:
     Type: AWS::EC2::Route
     DependsOn: InfraAttachIGW
@@ -92,16 +72,18 @@ Resources:
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InfraInternetGateway
 
+  # Subnet → RouteTable 연결
   InfraSubnetRouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       SubnetId: !Ref InfraPublicSubnet
       RouteTableId: !Ref InfraRouteTable
 
+  # Security Group (모든 포트 허용)
   InfraSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Infra Worker Security Group
+      GroupDescription: Infra K3s Agent SG
       VpcId: !Ref InfraVPC
       SecurityGroupIngress:
         - IpProtocol: -1
@@ -110,6 +92,7 @@ Resources:
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
 
+  # Launch Template for K3s Agent
   InfraLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
@@ -128,6 +111,7 @@ Resources:
             #!/bin/bash
             echo "k3s agent placeholder - waiting for control plane"
 
+  # Auto Scaling Group
   InfraASG:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
@@ -144,53 +128,20 @@ Resources:
           Value: infra-k3s-agent-asg
           PropagateAtLaunch: true
 
-  BackendECR:
-    Type: AWS::ECR::Repository
-    Properties:
-      RepositoryName: infra-app-backend
-
-  GitHubDeployRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: GitHubDeployRole
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Federated: !Sub arn:aws:iam::${GithubAccountId}:oidc-provider/token.actions.githubusercontent.com
-            Action: sts:AssumeRoleWithWebIdentity
-            Condition:
-              StringLike:
-                token.actions.githubusercontent.com:sub: repo:${GithubRepoName}:*
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AdministratorAccess
-
-  GitHubOIDCProvider:
-    Type: AWS::IAM::OIDCProvider
-    Properties:
-      Url: https://token.actions.githubusercontent.com
-      ClientIdList:
-        - sts.amazonaws.com
-      ThumbprintList:
-        - 6938fd4d98bab03faadb97b34396831e3780aea1
-      Tags:
-        - Key: Name
-          Value: github-oidc-provider
-
 Outputs:
-  InfraVPC:
+
+  VpcId:
+    Description: ID of created VPC
     Value: !Ref InfraVPC
-    Description: VPC for Infra
 
-  InfraASG:
+  PublicSubnetId:
+    Description: ID of created public subnet
+    Value: !Ref InfraPublicSubnet
+
+  LaunchTemplateId:
+    Description: Launch template ID for K3s agent
+    Value: !Ref InfraLaunchTemplate
+
+  ASGName:
+    Description: Auto Scaling Group name
     Value: !Ref InfraASG
-    Description: AutoScalingGroup for Infra K3s Agent
-
-  BackendECR:
-    Value: !Ref BackendECR
-    Description: ECR repository for backend app
-
-  GitHubRoleArn:
-    Value: !GetAtt GitHubDeployRole.Arn
-    Description: IAM Role ARN for GitHub OIDC Deployments

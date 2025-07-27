@@ -1,0 +1,82 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CI/CD Infrastructure - ECR + GitHub OIDC IAM Role
+
+Parameters:
+  RepositoryName:
+    Type: String
+    Description: Name of ECR Repository (e.g., infra-app-backend)
+
+  GithubRepoName:
+    Type: String
+    Description: GitHub Repository Name for OIDC Trust Policy (e.g., TeamFair/illsang-infra)
+
+  GithubAccountId:
+    Type: String
+    Description: AWS Account ID for OIDC Trust Policy (12-digit number)
+
+Resources:
+
+  # ECR Repository 생성
+  AppECR:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Ref RepositoryName
+      ImageScanningConfiguration:
+        scanOnPush: true
+      Tags:
+        - Key: Project
+          Value: illsang-infra
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # GitHub Actions → AWS Assume Role 허용용 OIDC Provider
+  GitHubOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+      Tags:
+        - Key: Name
+          Value: github-oidc-provider
+
+  # GitHub Actions에서 사용할 IAM Role (OIDC 기반 AssumeRole 허용)
+  GitHubDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: GitHubDeployRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Sub arn:aws:iam::${GithubAccountId}:oidc-provider/token.actions.githubusercontent.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringLike:
+                token.actions.githubusercontent.com:sub: repo:${GithubRepoName}:*
+      Policies:
+        - PolicyName: ECRPushPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:PutImage
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+                Resource: "*"
+
+Outputs:
+  ECRRepositoryUri:
+    Description: URI of the created ECR repository
+    Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${RepositoryName}"
+
+  GitHubRoleArn:
+    Description: IAM Role ARN for GitHub OIDC Deployments
+    Value: !GetAtt GitHubDeployRole.Arn
