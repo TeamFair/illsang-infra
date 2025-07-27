@@ -9,7 +9,7 @@ set -ex
 #echo '/swapfile none swap sw 0 0' >> /etc/fstab
 
 # 시간대 설정
-#timedatectl set-timezone Asia/Seoul
+timedatectl set-timezone Asia/Seoul
 
 # K3s 설치 (Traefik, servicelb, metrics-server 비활성화)
 export INSTALL_K3S_SKIP_SELINUX_RPM=true
