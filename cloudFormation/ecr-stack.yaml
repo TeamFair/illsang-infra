@@ -8,10 +8,6 @@ Parameters:
     Type: String
     Description: Name of ECR Repository (e.g., infra-app-backend)
 
-  GithubRepoName:
-    Type: String
-    Description: GitHub Repository Name for OIDC Trust Policy (e.g., TeamFair/illsang-infra)
-
   GithubAccountId:
     Type: String
     Description: AWS Account ID for OIDC Trust Policy (12-digit number)
@@ -58,7 +54,7 @@ Resources:
             Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringLike:
-                token.actions.githubusercontent.com:sub: repo:${GithubRepoName}:*
+                token.actions.githubusercontent.com:sub: repo:your-org/your-repo:*
       Policies:
         - PolicyName: ECRPushPolicy
           PolicyDocument:
