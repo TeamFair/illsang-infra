@@ -1,0 +1,182 @@
+# db-cache-stack.yaml
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: RDS (PostgreSQL) + ElastiCache (Redis) + S3 stack for production environment
+
+Parameters:
+  DBPassword:
+    Type: String
+    Description: Master password for the RDS PostgreSQL instance
+    NoEcho: true
+    MinLength: 8
+    MaxLength: 41
+
+  VPCId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC ID where resources will be deployed
+
+Resources:
+
+  # Public Subnets for RDS
+  RdsPublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPCId
+      CidrBlock: 10.100.3.0/24
+      AvailabilityZone: ap-northeast-2a
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: rds-public-subnet-1
+
+  RdsPublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPCId
+      CidrBlock: 10.100.4.0/24
+      AvailabilityZone: ap-northeast-2c
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: rds-public-subnet-2
+
+  # Private Subnets for Redis
+  RedisPrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPCId
+      CidrBlock: 10.100.5.0/24
+      AvailabilityZone: ap-northeast-2a
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: redis-private-subnet-1
+
+  RedisPrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPCId
+      CidrBlock: 10.100.6.0/24
+      AvailabilityZone: ap-northeast-2c
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: redis-private-subnet-2
+
+  # Security Group for RDS and Redis
+  DBRedisSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow access to PostgreSQL (5432) and Redis (6379)
+      VpcId: !Ref VPCId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 10.0.0.0/8
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          CidrIp: 10.0.0.0/8
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: db-redis-sg
+
+  # RDS Subnet Group
+  PrdDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for RDS (PostgreSQL)
+      SubnetIds:
+        - !Ref RdsPublicSubnet1
+        - !Ref RdsPublicSubnet2
+      DBSubnetGroupName: prd-db-subnet-group
+
+  # RDS PostgreSQL Instance
+  PrdRDSInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: prd-postgres-db
+      AllocatedStorage: 20
+      DBInstanceClass: db.t3.micro
+      Engine: postgres
+      EngineVersion: 17.5
+      MasterUsername: mydbuser
+      MasterUserPassword: !Ref DBPassword
+      VPCSecurityGroups:
+        - !Ref DBRedisSecurityGroup
+      DBSubnetGroupName: !Ref PrdDBSubnetGroup
+      PubliclyAccessible: true
+      BackupRetentionPeriod: 7
+      MultiAZ: false
+      StorageType: gp2
+      Tags:
+        - Key: Name
+          Value: prd-postgres-db
+
+  # Redis Subnet Group
+  PrdElastiCacheSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      Description: Subnet group for ElastiCache (Redis)
+      SubnetIds:
+        - !Ref RedisPrivateSubnet1
+        - !Ref RedisPrivateSubnet2
+      CacheSubnetGroupName: prd-redis-subnet-group
+
+  # ElastiCache Redis Cluster
+  PrdRedis:
+    Type: AWS::ElastiCache::CacheCluster
+    Properties:
+      CacheNodeType: cache.t2.micro
+      Engine: redis
+      NumCacheNodes: 1
+      VpcSecurityGroupIds:
+        - !Ref DBRedisSecurityGroup
+      CacheSubnetGroupName: !Ref PrdElastiCacheSubnetGroup
+      Tags:
+        - Key: Name
+          Value: prd-redis-cluster
+
+  # S3 Bucket
+  PrdS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub prd-app-logs-${AWS::AccountId}-${AWS::Region}
+      Tags:
+        - Key: Name
+          Value: prd-app-logs
+
+Outputs:
+  RDSInstance:
+    Description: RDS PostgreSQL instance
+    Value: !Ref PrdRDSInstance
+    Export:
+      Name: Prd-RDS-Instance
+
+  RedisCluster:
+    Description: ElastiCache Redis cluster
+    Value: !Ref PrdRedis
+    Export:
+      Name: Prd-Redis-Cluster
+
+  S3Bucket:
+    Description: S3 bucket for logs and backups
+    Value: !Ref PrdS3Bucket
+    Export:
+      Name: Prd-S3-Bucket
+
+  SubnetRds1:
+    Description: RDS Public Subnet 1
+    Value: !Ref RdsPublicSubnet1
+
+  SubnetRedis1:
+    Description: Redis Private Subnet 1
+    Value: !Ref RedisPrivateSubnet1
+
+  SecurityGroupId:
+    Description: Security group ID for DB and Redis
+    Value: !Ref DBRedisSecurityGroup

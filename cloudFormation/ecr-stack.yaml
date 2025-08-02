@@ -1,3 +1,5 @@
+# ecr-stack.yaml
+
 AWSTemplateFormatVersion: '2010-09-09'
 Description: CI/CD Infrastructure - ECR + GitHub OIDC IAM Role
 
