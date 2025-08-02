@@ -54,7 +54,7 @@ Resources:
             Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringLike:
-                token.actions.githubusercontent.com:sub: repo:your-org/your-repo:*
+                token.actions.githubusercontent.com:sub: repo:your-org/your-repo:* # fixme: fix-repo name
       Policies:
         - PolicyName: ECRPushPolicy
           PolicyDocument:
