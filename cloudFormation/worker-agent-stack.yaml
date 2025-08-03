@@ -81,6 +81,11 @@ Resources:
           FromPort: -1
           ToPort: -1
           SourceSecurityGroupId: !ImportValue ControlSG
+        - IpProtocol: tcp
+          FromPort: 10250
+          ToPort: 10250
+          SourceSecurityGroupId: !ImportValue ControlSG
+
       Tags:
         - Key: Name
           Value: k3s-agent-sg

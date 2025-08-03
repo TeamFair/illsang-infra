@@ -1,4 +1,4 @@
-name: Build and Push to ECR(DEV)
+name: Build and Push to ECR(PRD)
 
 on:
   workflow_dispatch:
