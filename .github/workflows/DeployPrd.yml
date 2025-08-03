@@ -1,4 +1,4 @@
-name: Build and Push to ECR
+name: Build and Push to ECR(DEV)
 
 on:
   workflow_dispatch:
@@ -40,5 +40,18 @@ jobs:
           IMAGE_TAG: latest
         run: |
           cd app-source
-          docker build -f module-bootstrap/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          FULL_REPO="$ECR_REGISTRY/${BASE_REPO}-prd"
+          docker build -f module-bootstrap/Dockerfile -t $FULL_REPO:$IMAGE_TAG .
+          docker push $FULL_REPO:$IMAGE_TAG
+
+#      - name: Deploy to EC2 via SSH and restart K8s deployment
+#        uses: appleboy/ssh-action@v1.0.0
+#        with:
+#          host: ${{ secrets.EC2_HOST }}
+#          username: ec2-user
+#          key: ${{ secrets.EC2_SSH_KEY }}
+#          script: |
+#            echo ">>> Restarting Kubernetes Deployment"
+#            kubectl rollout restart deployment app -n default
+#            echo ">>> Waiting for rollout completion"
+#            kubectl rollout status deployment app -n default --timeout=60s

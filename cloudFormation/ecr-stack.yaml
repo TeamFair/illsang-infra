@@ -1,12 +1,10 @@
-# ecr-stack.yaml
-
 AWSTemplateFormatVersion: '2010-09-09'
-Description: CI/CD Infrastructure - ECR + GitHub OIDC IAM Role
+Description: CI/CD Infrastructure - ECR(dev/prd) + GitHub OIDC IAM Role
 
 Parameters:
   RepositoryName:
     Type: String
-    Description: Name of ECR Repository (e.g., infra-app-backend)
+    Description: Base name of ECR Repository (e.g., infra-app-backend)
 
   GithubAccountId:
     Type: String
@@ -14,20 +12,69 @@ Parameters:
 
 Resources:
 
-  # ECR Repository 생성
-  AppECR:
+  # dev용 ECR
+  DevECR:
     Type: AWS::ECR::Repository
     Properties:
-      RepositoryName: !Ref RepositoryName
+      RepositoryName: !Sub "${RepositoryName}-dev"
       ImageScanningConfiguration:
         scanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep only last 3 dev images",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 3
+                },
+                "action": {
+                  "type": "expire"
+                }
+              }
+            ]
+          }
       Tags:
         - Key: Project
-          Value: illsang-infra
+          Value: illsang-infra-dev
         - Key: ManagedBy
           Value: CloudFormation
 
-  # GitHub Actions → AWS Assume Role 허용용 OIDC Provider
+  # prd용 ECR
+  PrdECR:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${RepositoryName}-prd"
+      ImageScanningConfiguration:
+        scanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep only last 3 prd images",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 3
+                },
+                "action": {
+                  "type": "expire"
+                }
+              }
+            ]
+          }
+      Tags:
+        - Key: Project
+          Value: illsang-infra-prd
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # GitHub Actions → AWS Assume Role 허용용 OIDC Provider (최초 1회만 배포 요망)
   GitHubOIDCProvider:
     Type: AWS::IAM::OIDCProvider
     Properties:
@@ -40,7 +87,7 @@ Resources:
         - Key: Name
           Value: github-oidc-provider
 
-  # GitHub Actions에서 사용할 IAM Role (OIDC 기반 AssumeRole 허용)
+  # GitHub Actions에서 사용할 공통 IAM Role
   GitHubDeployRole:
     Type: AWS::IAM::Role
     Properties:
@@ -54,7 +101,7 @@ Resources:
             Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringLike:
-                token.actions.githubusercontent.com:sub: repo:your-org/your-repo:* # fixme: fix-repo name
+                token.actions.githubusercontent.com:sub: repo:TeamFair/illsang-infra:* # fixme
       Policies:
         - PolicyName: ECRPushPolicy
           PolicyDocument:
@@ -71,9 +118,13 @@ Resources:
                 Resource: "*"
 
 Outputs:
-  ECRRepositoryUri:
-    Description: URI of the created ECR repository
-    Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${RepositoryName}"
+  DevECRUri:
+    Description: URI of the dev ECR repository
+    Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${RepositoryName}-dev"
+
+  PrdECRUri:
+    Description: URI of the prd ECR repository
+    Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${RepositoryName}-prd"
 
   GitHubRoleArn:
     Description: IAM Role ARN for GitHub OIDC Deployments

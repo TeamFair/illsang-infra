@@ -1,0 +1,159 @@
+# worker-agent-stack
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Spot 기반 K3s Agent 자동 복구 인프라 (ASG + EventBridge + Lambda)
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC ID
+
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet ID for launching EC2
+
+  AmiId:
+    Type: AWS::EC2::Image::Id
+    Default: ami-0d3f1d5ea8ee5fb26
+    Description: AMI ID (Amazon Linux 2)
+
+  ControlPlaneIP:
+    Type: String
+    Description: Internal IP of the K3s control plane (e.g., 10.100.1.52)
+
+  K3sJoinToken:
+    Type: String
+    Description: Node token for joining K3s cluster
+
+  AgentPassword:
+    Type: String
+    NoEcho: true
+    Description: Password for k3sagent (used for serial console login)
+
+  DesiredCapacity:
+    Type: Number
+    Default: 1
+    Description: Number of agent nodes to maintain
+
+Resources:
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Path: "/"
+      Policies:
+        - PolicyName: ECRReadAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:DescribeRepositories
+                Resource: "*"
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref InstanceRole
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow K3s Control Plane access to agent (port 6443, ICMP)
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 6443
+          ToPort: 6443
+          SourceSecurityGroupId: !ImportValue ControlSG  # ⬅ control stack에서 Export된 값
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          SourceSecurityGroupId: !ImportValue ControlSG
+      Tags:
+        - Key: Name
+          Value: k3s-agent-sg
+
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        InstanceType: t3.small
+        ImageId: !Ref AmiId
+        IamInstanceProfile:
+          Name: !Ref InstanceProfile
+        SecurityGroupIds:
+          - !Ref SecurityGroup
+        InstanceMarketOptions:
+          MarketType: spot
+#        NetworkInterfaces:
+#          - DeviceIndex: 0
+#            AssociatePublicIpAddress: false
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            timedatectl set-timezone Asia/Seoul
+
+            # 사용자 생성 및 비밀번호 설정
+            useradd -m -s /bin/bash k3sagent
+            echo "k3sagent:${AgentPassword}" | chpasswd
+            echo 'k3sagent ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers.d/k3sagent
+
+            # K3s Join 스크립트 작성
+            cat <<EOF > /opt/k3s-agent.sh
+            #!/bin/bash
+            curl -sfL https://get.k3s.io | INSTALL_K3S_SKIP_SELINUX_RPM=true K3S_URL=https://${ControlPlaneIP}:6443 K3S_TOKEN=${K3sJoinToken} sh - 
+            EOF
+            chmod +x /opt/k3s-agent.sh
+
+            # systemd 서비스 등록
+            cat <<EOF > /etc/systemd/system/k3s-agent.service
+            [Unit]
+            Description=Run K3s Agent Join Script
+            After=network.target
+
+            [Service]
+            ExecStart=/opt/k3s-agent.sh
+            Restart=on-failure
+            Type=simple
+
+            [Install]
+            WantedBy=multi-user.target
+            EOF
+
+            systemctl daemon-reexec
+            systemctl daemon-reload
+            systemctl enable k3s-agent.service
+            systemctl start k3s-agent.service
+
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      MinSize: !Ref DesiredCapacity
+      MaxSize: !Ref DesiredCapacity
+      DesiredCapacity: !Ref DesiredCapacity
+      VPCZoneIdentifier:
+        - !Ref SubnetId
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      Tags:
+        - Key: Name
+          Value: k3s-agent
+          PropagateAtLaunch: true
+
+Outputs:
+  AgentASG:
+    Description: Auto Scaling Group for K3s Agent
+    Value: !Ref AutoScalingGroup

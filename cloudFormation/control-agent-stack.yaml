@@ -168,3 +168,9 @@ Outputs:
   ControlPlaneIP:
     Value: !Ref ControlEIP
     Description: Public IP of the K3s Control Plane
+
+  ControlSG:
+    Description: Security Group for K3s Control Plane
+    Value: !Ref ControlSG
+    Export:
+      Name: ControlSG

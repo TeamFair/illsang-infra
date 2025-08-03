@@ -14,9 +14,8 @@ timedatectl set-timezone Asia/Seoul
 # K3s 설치 (Traefik, servicelb, metrics-server 비활성화)
 export INSTALL_K3S_SKIP_SELINUX_RPM=true
 curl -sfL https://get.k3s.io | sh -s - server \
-  --disable traefik \
+  #--disable traefik \
   --disable servicelb \
-  --disable metrics-server \
   --write-kubeconfig-mode 644
 
 # KUBECONFIG 환경변수 설정
