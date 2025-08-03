@@ -40,7 +40,7 @@ jobs:
           IMAGE_TAG: latest
         run: |
           cd app-source
-          FULL_REPO="$ECR_REGISTRY/${BASE_REPO}-prd"
+          FULL_REPO="$ECR_REGISTRY/${ECR_REPOSITORY}-prd"
           docker build -f module-bootstrap/Dockerfile -t $FULL_REPO:$IMAGE_TAG .
           docker push $FULL_REPO:$IMAGE_TAG
 
