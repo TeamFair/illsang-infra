@@ -47,4 +47,8 @@ resources:
 imagePullSecrets:
   - name: ecr-creds
 
-namespaceOverride: "backend-dev"
+namespaceOverride: backend-dev
+aws:
+  region: ap-northeast-2
+ssm:
+  path: /ilsang/backend_dev
