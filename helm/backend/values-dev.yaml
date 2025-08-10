@@ -1,4 +1,5 @@
-# values.yaml
+# values-dev.yaml
+
 spring:
   profile: dev
 
@@ -16,8 +17,8 @@ affinity:
 replicaCount: 1
 
 image:
-  repository: "" # 외부에서 입력
-  tag: "latest"
+  repository: ""
+  tag: ""
   pullPolicy: IfNotPresent
 
 service:
@@ -46,4 +47,4 @@ resources:
 imagePullSecrets:
   - name: ecr-creds
 
-namespaceOverride: ""
+namespaceOverride: "backend-dev"
