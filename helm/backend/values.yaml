@@ -2,6 +2,17 @@
 spring:
   profile: dev
 
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            # K3s/K8s 컨트롤플레인 라벨이 존재하면 해당 노드를 제외
+            - key: node-role.kubernetes.io/control-plane
+              operator: DoesNotExist
+            - key: node-role.kubernetes.io/master
+              operator: DoesNotExist
+
 replicaCount: 1
 
 image:
