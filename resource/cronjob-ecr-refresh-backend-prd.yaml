@@ -1,0 +1,35 @@
+# cronjob-ecr-refresh-backend-prd.yaml
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ecr-secret-refresh
+  namespace: backend-prd
+spec:
+  schedule: "0 */11 * * *"
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: refresher
+              image: public.ecr.aws/aws-cli/aws-cli:2.15.55
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  PASS="$(aws ecr get-login-password --region ap-northeast-2)"
+                  kubectl -n backend-prd delete secret ecr-creds --ignore-not-found
+                  kubectl -n backend-prd create secret docker-registry ecr-creds \
+                    --docker-server=918381483551.dkr.ecr.ap-northeast-2.amazonaws.com \
+                    --docker-username=AWS \
+                    --docker-password="$PASS"
+              env:
+                - name: AWS_REGION
+                  value: ap-northeast-2
+              securityContext:
+                runAsUser: 0
