@@ -125,7 +125,7 @@ Resources:
   ControlInstance:
     Type: AWS::EC2::Instance
     Properties:
-      InstanceType: t2.micro
+      InstanceType: t3.small
       KeyName: !Ref KeyName
       ImageId: !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2}}'
       NetworkInterfaces:
