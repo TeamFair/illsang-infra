@@ -23,5 +23,8 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - containerPort: 8080
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: {{ .Values.spring.profile | default "dev" | quote }}
           resources:
 {{- toYaml .Values.resources | nindent 12 }}

@@ -1,4 +1,6 @@
 # values.yaml
+spring:
+  profile: dev
 
 replicaCount: 1
 
