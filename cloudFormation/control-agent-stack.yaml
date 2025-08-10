@@ -122,12 +122,69 @@ Resources:
   ControlEIP:
     Type: AWS::EC2::EIP
 
+  # ------------------------------
+  # IAM Role & Policy & Instance Profile
+  # ------------------------------
+  NodeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: EC2-Ilsang-SSMParamRead
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Tags:
+        - Key: Project
+          Value: illsang-infra
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  NodeRolePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: SSMParamReadIlsang
+      Roles:
+        - !Ref NodeRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: ReadParamStoreIlsangDevPrd
+            Effect: Allow
+            Action:
+              - ssm:GetParameter
+              - ssm:GetParameters
+              - ssm:GetParametersByPath
+            Resource:
+              - arn:aws:ssm:ap-northeast-2:918381483551:parameter/ilsang/backend_dev/*
+              - arn:aws:ssm:ap-northeast-2:918381483551:parameter/ilsang/backend_prd/*
+          - Sid: DecryptIfSecureString
+            Effect: Allow
+            Action: kms:Decrypt
+            Resource: "*"
+            Condition:
+              StringEquals:
+                kms:ViaService: ssm.ap-northeast-2.amazonaws.com
+
+  NodeInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: EC2-Ilsang-SSMParamRead
+      Roles:
+        - !Ref NodeRole
+
+  # ------------------------------
+  # EC2 Instance
+  # ------------------------------
   ControlInstance:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: t3.small
       KeyName: !Ref KeyName
       ImageId: !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2}}'
+      IamInstanceProfile: !Ref NodeInstanceProfile
       NetworkInterfaces:
         - AssociatePublicIpAddress: true
           DeviceIndex: 0

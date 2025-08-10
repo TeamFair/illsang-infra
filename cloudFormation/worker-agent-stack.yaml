@@ -7,29 +7,23 @@ Parameters:
   VpcId:
     Type: AWS::EC2::VPC::Id
     Description: VPC ID
-
   SubnetId:
     Type: AWS::EC2::Subnet::Id
     Description: Subnet ID for launching EC2
-
   AmiId:
     Type: AWS::EC2::Image::Id
     Default: ami-0d3f1d5ea8ee5fb26
     Description: AMI ID (Amazon Linux 2)
-
   ControlPlaneIP:
     Type: String
     Description: Internal IP of the K3s control plane (e.g., 10.100.1.52)
-
   K3sJoinToken:
     Type: String
     Description: Node token for joining K3s cluster
-
   AgentPassword:
     Type: String
     NoEcho: true
     Description: Password for k3sagent (used for serial console login)
-
   DesiredCapacity:
     Type: Number
     Default: 1
@@ -37,6 +31,7 @@ Parameters:
 
 Resources:
 
+  # --- IAM Role & Instance Profile (스택 내 생성) ---
   InstanceRole:
     Type: AWS::IAM::Role
     Properties:
@@ -44,11 +39,11 @@ Resources:
         Version: '2012-10-17'
         Statement:
           - Effect: Allow
-            Principal:
-              Service: ec2.amazonaws.com
+            Principal: { Service: ec2.amazonaws.com }
             Action: sts:AssumeRole
       Path: "/"
       Policies:
+        # ECR Pull 권한
         - PolicyName: ECRReadAccess
           PolicyDocument:
             Version: '2012-10-17'
@@ -59,6 +54,42 @@ Resources:
                   - ecr:BatchCheckLayerAvailability
                   - ecr:GetDownloadUrlForLayer
                   - ecr:DescribeRepositories
+                  - ecr:ListImages
+                  - ecr:DescribeImages
+                  - ecr:BatchGetImage
+                Resource: "*"
+        # Parameter Store 읽기 (dev/prd 둘 다)
+        - PolicyName: SSMParameterStoreReadIlsang
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadParamStoreIlsang
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                  - ssm:GetParametersByPath
+                Resource:
+                  - arn:aws:ssm:ap-northeast-2:918381483551:parameter/ilsang/backend_dev/*
+                  - arn:aws:ssm:ap-northeast-2:918381483551:parameter/ilsang/backend_prd/*
+              # SecureString 사용 시 KMS 복호화 허용 (필요 시 특정 KMS 키 ARN으로 제한 권장)
+              - Sid: DecryptIfSecureString
+                Effect: Allow
+                Action: kms:Decrypt
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    kms:ViaService: ssm.ap-northeast-2.amazonaws.com
+        # (옵션) CloudWatch Logs 전송
+        - PolicyName: CWLogsBasic
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
                 Resource: "*"
 
   InstanceProfile:
@@ -67,6 +98,7 @@ Resources:
       Roles:
         - !Ref InstanceRole
 
+  # --- 네트워킹/보안 ---
   SecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -76,7 +108,7 @@ Resources:
         - IpProtocol: tcp
           FromPort: 6443
           ToPort: 6443
-          SourceSecurityGroupId: !ImportValue ControlSG  # ⬅ control stack에서 Export된 값
+          SourceSecurityGroupId: !ImportValue ControlSG
         - IpProtocol: icmp
           FromPort: -1
           ToPort: -1
@@ -85,11 +117,11 @@ Resources:
           FromPort: 10250
           ToPort: 10250
           SourceSecurityGroupId: !ImportValue ControlSG
-
       Tags:
         - Key: Name
           Value: k3s-agent-sg
 
+  # --- Launch Template (Role 붙임) ---
   LaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
@@ -100,39 +132,43 @@ Resources:
           Name: !Ref InstanceProfile
         SecurityGroupIds:
           - !Ref SecurityGroup
-#        InstanceMarketOptions:
-#          MarketType: spot
-#        NetworkInterfaces:
-#          - DeviceIndex: 0
-#            AssociatePublicIpAddress: false
+        # Spot 쓰려면 아래 주석 해제
+        # InstanceMarketOptions:
+        #   MarketType: spot
+        # 필요 시 퍼블릭 IP 비활성화 설정을 NIC로 컨트롤
+        # NetworkInterfaces:
+        #   - DeviceIndex: 0
+        #     AssociatePublicIpAddress: false
         UserData:
           Fn::Base64: !Sub |
             #!/bin/bash
+            set -euo pipefail
             timedatectl set-timezone Asia/Seoul
 
             # 사용자 생성 및 비밀번호 설정
-            useradd -m -s /bin/bash k3sagent
+            useradd -m -s /bin/bash k3sagent || true
             echo "k3sagent:${AgentPassword}" | chpasswd
-            echo 'k3sagent ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers.d/k3sagent
+            echo 'k3sagent ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/k3sagent
 
-            # K3s Join 스크립트 작성
-            cat <<EOF > /opt/k3s-agent.sh
+            # K3s Join 스크립트
+            cat <<'EOF' > /opt/k3s-agent.sh
             #!/bin/bash
-            curl -sfL https://get.k3s.io | INSTALL_K3S_SKIP_SELINUX_RPM=true K3S_URL=https://${ControlPlaneIP}:6443 K3S_TOKEN=${K3sJoinToken} sh - 
+            set -e
+            curl -sfL https://get.k3s.io | INSTALL_K3S_SKIP_SELINUX_RPM=true \
+              K3S_URL=https://${ControlPlaneIP}:6443 \
+              K3S_TOKEN=${K3sJoinToken} sh -
             EOF
             chmod +x /opt/k3s-agent.sh
 
             # systemd 서비스 등록
-            cat <<EOF > /etc/systemd/system/k3s-agent.service
+            cat <<'EOF' > /etc/systemd/system/k3s-agent.service
             [Unit]
             Description=Run K3s Agent Join Script
             After=network.target
-
             [Service]
             ExecStart=/opt/k3s-agent.sh
             Restart=on-failure
             Type=simple
-
             [Install]
             WantedBy=multi-user.target
             EOF
@@ -142,6 +178,7 @@ Resources:
             systemctl enable k3s-agent.service
             systemctl start k3s-agent.service
 
+  # --- ASG ---
   AutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:

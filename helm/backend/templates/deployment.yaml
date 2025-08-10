@@ -31,5 +31,11 @@ spec:
           env:
             - name: SPRING_PROFILES_ACTIVE
               value: {{ .Values.spring.profile | default "dev" | quote }}
+            - name: AWS_REGION
+              value: {{ .Values.aws.region | default "ap-northeast-2" | quote }}
+            - name: SPRING_CLOUD_AWS_REGION_STATIC
+              value: {{ .Values.aws.region | default "ap-northeast-2" | quote }}
+            - name: LOGGING_LEVEL_IO_AWSPRING_CLOUD_PARAMSTORE
+              value: DEBUG
           resources:
 {{- toYaml .Values.resources | nindent 12 }}
